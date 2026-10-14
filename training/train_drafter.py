@@ -35,7 +35,10 @@ ap.add_argument("--limit", type=int, default=0, help="faqat shuncha namuna (sino
 ap.add_argument("--save_every", type=int, default=2000)
 ap.add_argument("--warmup", type=int, default=100)
 ap.add_argument("--load_test", action="store_true", help="faqat Gemma'ni yuklab, xotirani ko'rsatadi")
-ap.add_argument("--max_pos", type=int, default=768, help="o'qitishda bir namunadan olinadigan pozitsiyalar (xotira)")
+ap.add_argument("--max_pos", type=int, default=512, help="o'qitishda bir namunadan olinadigan pozitsiyalar (xotira)")
+ap.add_argument("--skip_eval0", action="store_true")
+ap.add_argument("--answer_bias", type=float, default=0.7, help="oyna javob qismidan boshlanish ehtimoli")
+ap.add_argument("--train_lm_head", action="store_true", help="lug'at qatlamini ham o'qitish (ko'p xotira)")
 ap.add_argument("--overfit", action="store_true", help="tekshiruv: sinov namunalarida ham o'qitadi")
 args = ap.parse_args()
 torch.manual_seed(0); random.seed(0)
@@ -109,6 +112,12 @@ if args.load_test:
 drafter = Gemma4AssistantForCausalLM.from_pretrained(args.drafter, dtype=torch.float32,
                                                      attn_implementation="sdpa").to(dev)
 drafter.train()
+if not args.train_lm_head:
+    # lug'at qatlami (262144x1024, parametrlarning ~64%) muzlatiladi: grad+Adam uchun ~4.5 GB tejaladi.
+    # vLLM'da u faqat chiqish (lm_head) sifatida ishlatiladi; moslashishni 4 qatlam va proyeksiyalar qiladi.
+    drafter.lm_head.weight.requires_grad_(False)
+n_tr = sum(p.numel() for p in drafter.parameters() if p.requires_grad)
+print(f"o'qitiladigan parametrlar: {n_tr/1e6:.0f}M", flush=True)
 print(f"modellar yuklandi {time.time()-t0:.0f}s, GPU {torch.cuda.memory_allocated()/2**30:.1f} GiB", flush=True)
 SW = drafter.config.get_text_config().sliding_window  # 1024
 THINK_END = AutoTokenizer.from_pretrained(args.drafter).convert_tokens_to_ids("<channel|>")
@@ -170,12 +179,15 @@ def run(rec, train=True):
     pos = torch.arange(start - 2, L - 1 - args.steps, device=dev)   # x[i+1+s] mavjud bo'lishi uchun
     if pos.numel() < 4:
         return None
-    if train and pos.numel() > args.max_pos:                        # xotira: tasodifiy uzluksiz oyna
-        a = random.randint(0, pos.numel() - args.max_pos)
-        pos = pos[a: a + args.max_pos]
     # o'ylash tugagan joy (<channel|>): undan keyingi tokenlar — foydalanuvchiga ko'rinadigan javob
     ends = (seq == THINK_END).nonzero()
     think_end = int(ends[-1]) if ends.numel() else start
+    if train and pos.numel() > args.max_pos:                        # xotira: tasodifiy uzluksiz oyna
+        hi = pos.numel() - args.max_pos
+        ans0 = int((pos + 2 > think_end).nonzero()[0]) if (pos + 2 > think_end).any() else hi
+        # 70% hollarda oyna javob qismidan boshlanadi — zaif joy (o'zbekcha javob) ko'proq o'rganilsin
+        a = random.randint(min(ans0, hi), hi) if random.random() < args.answer_bias else random.randint(0, hi)
+        pos = pos[a: a + args.max_pos]
     H, kv = target_pass(seq)
     m = masks(pos, L)
     embed = lm.embed_tokens
@@ -229,11 +241,13 @@ def evaluate(tag):
 
 # ---------------------------------------------------------------- o'qitish
 total_steps = int(len(recs) * args.epochs)
-opt = torch.optim.AdamW(drafter.parameters(), lr=args.lr, betas=(0.9, 0.95), weight_decay=0.0)
+opt = torch.optim.AdamW([p for p in drafter.parameters() if p.requires_grad], lr=args.lr,
+                        betas=(0.9, 0.95), weight_decay=0.0)
 warm = args.warmup
 sched = torch.optim.lr_scheduler.LambdaLR(
     opt, lambda u: min(1, (u + 1) / warm) * 0.5 * (1 + math.cos(math.pi * min(1, u * args.accum / max(1, total_steps)))))
-evaluate("boshlang'ich")
+if not args.skip_eval0:
+    evaluate("boshlang'ich")
 t0, run_l, run_a = time.time(), [], []
 for it in range(total_steps):
     o = run(recs[it % len(recs)])
