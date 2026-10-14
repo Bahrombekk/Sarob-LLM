@@ -16,7 +16,7 @@ Internetdan qidiradi, Excel/Word/grafik yaratadi, rasmdagi jadvallarni o'qiydi, 
                     ▼                     ▼                          ▼
    ┌─────────── Modellar (vLLM 0.31) ───────────┐      ┌──── Asboblar ────────────────────┐
    │ Sarob / Sarob Tez : Gemma 4 26B-A4B NVFP4  │      │ internet: SearXNG (:8095)        │
-   │   (unsloth) + MTP, :8000, ~60-70 tok/s     │      │ sahifa/brauzer: Playwright (:8097)│
+   │   (unsloth) + MTP k=2, :8000, ~45-69 tok/s    │      │ sahifa/brauzer: Playwright (:8097)│
    │ Sarob Pro : Qwen3.8 27B NVFP4 + MTP, :8001 │      │ chuqur tadqiqot, valyuta (CBU)   │
    │ Embedding : bge-m3 (Ollama, :11435)        │      │ bazalar: SQLite/PostgreSQL (o'qish)│
    └────────────────────────────────────────────┘      │ rasmlardan Excel                 │
@@ -61,6 +61,7 @@ Maxfiy fayllar faqat Spark'da turadi va loyihaga kirmaydi (`.gitignore`):
 | Ko'rsatkich | Avval | Hozir |
 |---|---|---|
 | Gemma tezligi | 46–53 tok/s | **59–70 tok/s** (unsloth nusxasi, Marlin'siz) |
+| O'zbekcha javob tezligi (MTP k=4 → k=2) | 34.5 tok/s | **44.6 tok/s (+29%)** |
 | 26 ta vazifa umumiy vaqti | 1549 s | **855 s (−45%)** |
 | Salom / tarjima | 3–8 s | **0.4–2 s** |
 | Chuqur tadqiqot asbobi | 17–23 s | **5 s** |
