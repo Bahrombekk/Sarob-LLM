@@ -15,7 +15,8 @@ Ishlatish: python3 train_drafter.py --data responses.jsonl --out ~/models/gemma4
 import argparse, json, math, os, random, shutil, time
 import torch
 import torch.nn.functional as F
-from transformers import AutoModelForImageTextToText, Gemma4AssistantForCausalLM
+from safetensors import safe_open
+from transformers import AutoConfig, Gemma4AssistantForCausalLM, Gemma4ForCausalLM
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--target", default="/models/gemma4-26b-bf16")
@@ -34,6 +35,7 @@ ap.add_argument("--eval_n", type=int, default=200, help="o'qitilmaydigan sinov n
 ap.add_argument("--limit", type=int, default=0, help="faqat shuncha namuna (sinov uchun)")
 ap.add_argument("--save_every", type=int, default=2000)
 ap.add_argument("--warmup", type=int, default=100)
+ap.add_argument("--load_test", action="store_true", help="faqat Gemma'ni yuklab, xotirani ko'rsatadi")
 ap.add_argument("--overfit", action="store_true", help="tekshiruv: sinov namunalarida ham o'qitadi")
 args = ap.parse_args()
 torch.manual_seed(0); random.seed(0)
@@ -41,17 +43,68 @@ dev = "cuda"
 W = [float(x) for x in args.step_w.split(",")][: args.steps]
 
 # ---------------------------------------------------------------- modellar
+def load_target(path):
+    """Faqat matn modelini to'g'ridan-to'g'ri GPU'da quradi va og'irliklarni fayldan bittadan ko'chiradi.
+    from_pretrained Spark'da (umumiy xotira) CPU+GPU nusxalari tufayli ~3x xotira olib, tizimni qotirgan."""
+    def mem(tag):
+        a = int(open("/proc/meminfo").read().split("MemAvailable:")[1].split()[0]) / 2**20
+        print(f"  [{tag}] bo'sh {a:.0f} GiB, GPU {torch.cuda.memory_allocated()/2**30:.1f} GiB "
+              f"(zaxira {torch.cuda.memory_reserved()/2**30:.1f})", flush=True)
+
+    cfg = AutoConfig.from_pretrained(path).get_text_config()
+    cfg._attn_implementation = "sdpa"
+    mem("boshida")
+    torch.set_default_dtype(torch.bfloat16)
+    with torch.device(dev):
+        m = Gemma4ForCausalLM._from_config(cfg, dtype=torch.bfloat16)
+    torch.set_default_dtype(torch.float32)
+    mem("model qurildi")
+    sd = m.state_dict()
+    idx = json.load(open(os.path.join(path, "model.safetensors.index.json")))["weight_map"]
+    pre, done = "model.language_model.", set()
+    # safetensors'ni mmap'siz, tensorma-tensor o'qiymiz va o'qilgan qismni keshdan darhol bo'shatamiz:
+    # mmap bilan butun shard (~25 GB) vaqtincha "band" ko'rinib, bo'sh xotirani 31 GB ga tushirgan.
+    DT = {"BF16": torch.bfloat16, "F16": torch.float16, "F32": torch.float32, "I64": torch.int64,
+          "I32": torch.int32, "U8": torch.uint8, "BOOL": torch.bool}
+    for shard in sorted(set(idx.values())):
+        with open(os.path.join(path, shard), "rb", buffering=0) as f:
+            hl = int.from_bytes(f.read(8), "little")
+            header = json.loads(f.read(hl))
+            base = 8 + hl
+            for k, info in header.items():
+                if k == "__metadata__" or not k.startswith(pre):
+                    continue                           # rasm/ovoz qismlari kerak emas
+                name = "model." + k[len(pre):]
+                if name not in sd:
+                    continue
+                a, b = info["data_offsets"]
+                f.seek(base + a)
+                buf = bytearray(b - a)
+                f.readinto(buf)
+                t = torch.frombuffer(buf, dtype=DT[info["dtype"]]).view(info["shape"])
+                sd[name].copy_(t)
+                del t, buf
+                os.posix_fadvise(f.fileno(), base + a, b - a, os.POSIX_FADV_DONTNEED)
+                done.add(name)
+                if len(done) % 200 == 0:
+                    mem(f"{len(done)} tensor")
+    missing = [k for k in sd if k not in done and k != "lm_head.weight"]
+    if missing:
+        print("DIQQAT, yuklanmagan:", missing[:10], flush=True)
+    m.lm_head.weight = m.model.embed_tokens.weight     # bog'langan
+    return m
+
+
 t0 = time.time()
-target = AutoModelForImageTextToText.from_pretrained(args.target, dtype=torch.bfloat16, device_map=dev,
-                                                     attn_implementation="sdpa")
-lm = target.model.language_model                      # Gemma4TextModel
+target = load_target(args.target)
+lm = target.model                                      # Gemma4TextModel
 lm_head_w = target.lm_head.weight                      # [V, 2816] (embed bilan bog'langan)
-softcap = target.config.get_text_config().final_logit_softcapping
-for n in ("vision_tower", "audio_tower", "embed_vision", "embed_audio"):
-    if hasattr(target.model, n):
-        setattr(target.model, n, None)                 # rasm/ovoz qismlari kerak emas
+softcap = target.config.final_logit_softcapping
 target.requires_grad_(False).eval()
 torch.cuda.empty_cache()
+print(f"Gemma yuklandi {time.time()-t0:.0f}s, GPU {torch.cuda.memory_allocated()/2**30:.1f} GiB", flush=True)
+if args.load_test:
+    raise SystemExit
 
 drafter = Gemma4AssistantForCausalLM.from_pretrained(args.drafter, dtype=torch.float32,
                                                      attn_implementation="sdpa").to(dev)
