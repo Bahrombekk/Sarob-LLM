@@ -1,0 +1,20 @@
+# Maxfiy ma'lumotlar hech qachon loyihaga qo'shilmasin
+*.dsn
+.telegram_token
+.terminal_key
+.jupyter_token
+.owui_secret
+*.key
+*.pem
+.env
+
+# Katta va vaqtinchalik fayllar
+*.db
+*.xlsx
+*.docx
+*.png
+*.safetensors
+__pycache__/
+*.pyc
+models/
+data/

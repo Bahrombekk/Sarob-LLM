@@ -1,0 +1,44 @@
+use_default_settings: true
+server:
+  secret_key: "<OZINGIZNING_TASODIFIY_KALITINGIZ>"
+  limiter: false
+  image_proxy: false
+search:
+  suspended_times:
+    SearxEngineAccessDenied: 600
+    SearxEngineCaptcha: 1800
+    SearxEngineTooManyRequests: 600
+    cf_SearxEngineCaptcha: 1800
+    cf_SearxEngineAccessDenied: 600
+    recaptcha_SearxEngineCaptcha: 1800
+  safe_search: 0
+  formats: [html, json]
+  default_lang: "auto"
+outgoing:
+  request_timeout: 6.0
+  max_request_timeout: 12.0
+engines:
+  - name: google
+    disabled: false
+  - name: bing
+    disabled: false
+  - name: brave
+    disabled: false
+  - name: duckduckgo
+    disabled: false
+  - name: wikipedia
+    disabled: false
+  - name: yandex
+    disabled: false
+  - name: startpage
+    disabled: false
+  - name: qwant
+    disabled: false
+  - name: mojeek
+    disabled: false
+  - name: yahoo
+    disabled: false
+  - name: bing news
+    disabled: false
+  - name: yahoo news
+    disabled: false

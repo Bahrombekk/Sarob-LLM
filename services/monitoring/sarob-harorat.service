@@ -1,0 +1,8 @@
+[Unit]
+Description=Sarob: Spark harorat kuzatuvi
+[Service]
+ExecStart=%h/sarob/bot/harorat.sh
+Restart=always
+RestartSec=10
+[Install]
+WantedBy=default.target
