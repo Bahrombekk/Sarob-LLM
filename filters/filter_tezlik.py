@@ -70,6 +70,21 @@ class Filter:
             return 1024                      # mantiq / hisob / tuzoq
         return None
 
+    def inlet(self, body: dict, __metadata__: dict = None) -> dict:
+        # Kod bajarish (execute_code) har doim yoqiq bo'lsin: chatdagi "Code Interpreter" tugmasi o'chiq qolsa,
+        # Open WebUI asbobni bermaydi, prompt esa undan foydalanishni buyuradi -> "Tool not found" va halqa.
+        # Asbob ro'yxati metadata["features"] dan tuziladi, shuning uchun ikkalasini ham yoqamiz.
+        # (Sarob Tez'da model imkoniyati o'chiq — u yerda baribir berilmaydi.)
+        try:
+            for d in (body, __metadata__):
+                if isinstance(d, dict):
+                    if not isinstance(d.get("features"), dict):
+                        d["features"] = {}
+                    d["features"]["code_interpreter"] = True
+        except Exception:
+            pass
+        return body
+
     def request(self, body: dict, __user__: dict = None, __model__: dict = None) -> dict:
         # Eslatma: Open WebUI model parametrlarini (custom_params) bu filtrdan KEYIN qo'llaydi,
         # shuning uchun thinking_token_budget model sozlamalarida bo'lmasligi kerak — uni faqat shu filtr belgilaydi.

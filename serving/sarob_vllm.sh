@@ -16,7 +16,7 @@ docker run -d --name sarob-vllm --restart unless-stopped \
   --kv-cache-dtype fp8 \
   --max-model-len 131072 \
   --gpu-memory-utilization 0.35 \
-  --max-num-seqs 8 \
+  --max-num-seqs ${MAX_SEQS:-8} \
   --speculative-config '{"method":"mtp","model":"/models/gemma4-26b-assistant","num_speculative_tokens":2}' \
   --limit-mm-per-prompt '{"image":32,"audio":0,"video":0}' \
   --mm-processor-kwargs '{"max_soft_tokens":1120}' \
