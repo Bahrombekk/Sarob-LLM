@@ -15,8 +15,7 @@ Ishlatish: python3 train_drafter.py --data responses.jsonl --out ~/models/gemma4
 import argparse, json, math, os, random, shutil, time
 import torch
 import torch.nn.functional as F
-from safetensors import safe_open
-from transformers import AutoConfig, Gemma4AssistantForCausalLM, Gemma4ForCausalLM
+from transformers import AutoConfig, AutoTokenizer, Gemma4AssistantForCausalLM, Gemma4ForCausalLM
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--target", default="/models/gemma4-26b-bf16")
@@ -29,13 +28,14 @@ ap.add_argument("--lr", type=float, default=5e-5)
 ap.add_argument("--epochs", type=float, default=1.0)
 ap.add_argument("--accum", type=int, default=8)
 ap.add_argument("--max_len", type=int, default=4096)
-ap.add_argument("--kl_chunk", type=int, default=256)
+ap.add_argument("--kl_chunk", type=int, default=128)
 ap.add_argument("--ce_w", type=float, default=0.1)
 ap.add_argument("--eval_n", type=int, default=200, help="o'qitilmaydigan sinov namunalari soni")
 ap.add_argument("--limit", type=int, default=0, help="faqat shuncha namuna (sinov uchun)")
 ap.add_argument("--save_every", type=int, default=2000)
 ap.add_argument("--warmup", type=int, default=100)
 ap.add_argument("--load_test", action="store_true", help="faqat Gemma'ni yuklab, xotirani ko'rsatadi")
+ap.add_argument("--max_pos", type=int, default=768, help="o'qitishda bir namunadan olinadigan pozitsiyalar (xotira)")
 ap.add_argument("--overfit", action="store_true", help="tekshiruv: sinov namunalarida ham o'qitadi")
 args = ap.parse_args()
 torch.manual_seed(0); random.seed(0)
@@ -111,6 +111,8 @@ drafter = Gemma4AssistantForCausalLM.from_pretrained(args.drafter, dtype=torch.f
 drafter.train()
 print(f"modellar yuklandi {time.time()-t0:.0f}s, GPU {torch.cuda.memory_allocated()/2**30:.1f} GiB", flush=True)
 SW = drafter.config.get_text_config().sliding_window  # 1024
+THINK_END = AutoTokenizer.from_pretrained(args.drafter).convert_tokens_to_ids("<channel|>")
+print("o'ylash oxiri tokeni:", THINK_END, flush=True)
 
 
 def target_pass(seq):
@@ -145,40 +147,49 @@ def draft_step(emb, hid, pos, kv, m):
 
 
 def kl_ce(h_draft, t_hidden, labels):
-    """Bo'laklab: KL(p_gemma || p_draft) + ce_w * CE; qabul (argmax mosligi) ham hisoblanadi."""
-    tot, acc, n = 0.0, 0, h_draft.shape[0]
+    """Bo'laklab: KL(p_gemma || p_draft) + ce_w * CE. Har pozitsiya uchun argmax mosligi (bool) ham qaytadi."""
+    tot, hits, n = 0.0, [], h_draft.shape[0]
     for a in range(0, n, args.kl_chunk):
         b = min(n, a + args.kl_chunk)
         dl = (h_draft[a:b] @ drafter.lm_head.weight.T).float()
         with torch.no_grad():
             tl = target_logits(t_hidden[a:b])
             tp = F.softmax(tl, -1)
-        kl = (tp * (F.log_softmax(tl, -1) - F.log_softmax(dl, -1))).sum(-1).sum()
+            tlog = F.log_softmax(tl, -1)
+        kl = (tp * (tlog - F.log_softmax(dl, -1))).sum(-1).sum()
         ce = F.cross_entropy(dl, labels[a:b], reduction="sum")
         tot = tot + kl + args.ce_w * ce
-        acc += (dl.argmax(-1) == tl.argmax(-1)).sum().item()
-    return tot / n, acc
+        hits.append((dl.argmax(-1) == tl.argmax(-1)).detach())
+        del tl, tp, tlog
+    return tot / n, torch.cat(hits)
 
 
 def run(rec, train=True):
     seq = torch.tensor((rec["prompt_ids"] + rec["ids"])[-args.max_len:], device=dev)
     L, start = seq.numel(), max(2, seq.numel() - len(rec["ids"]))
-    H, kv = target_pass(seq)
     pos = torch.arange(start - 2, L - 1 - args.steps, device=dev)   # x[i+1+s] mavjud bo'lishi uchun
     if pos.numel() < 4:
         return None
+    if train and pos.numel() > args.max_pos:                        # xotira: tasodifiy uzluksiz oyna
+        a = random.randint(0, pos.numel() - args.max_pos)
+        pos = pos[a: a + args.max_pos]
+    # o'ylash tugagan joy (<channel|>): undan keyingi tokenlar — foydalanuvchiga ko'rinadigan javob
+    ends = (seq == THINK_END).nonzero()
+    think_end = int(ends[-1]) if ends.numel() else start
+    H, kv = target_pass(seq)
     m = masks(pos, L)
     embed = lm.embed_tokens
-    hid, losses, accs = H[pos].float(), [], []
+    hid, losses, hits = H[pos].float(), [], []
     ctx = torch.enable_grad() if train else torch.no_grad()
     with ctx, torch.autocast("cuda", dtype=torch.bfloat16):
         for s in range(args.steps):
             emb = embed(seq[pos + 1 + s]).float()
             h, hid = draft_step(emb, hid, pos, kv, m)
-            loss, acc = kl_ce(h, H[pos + 1 + s], seq[pos + 2 + s])
-            losses.append(loss); accs.append(acc / pos.numel())
+            loss, hit = kl_ce(h, H[pos + 1 + s], seq[pos + 2 + s])
+            losses.append(loss); hits.append(hit)
     total = sum(w * l for w, l in zip(W, losses)) / sum(W)
-    return total, [l.item() for l in losses], accs, pos.numel()
+    answer = (pos + 2) > think_end                                  # bashorat qilinayotgan token javobda
+    return total, [l.item() for l in losses], hits, answer
 
 
 # ---------------------------------------------------------------- ma'lumot
@@ -195,24 +206,25 @@ print(f"o'qitish {len(recs)}, sinov {len(evals)}", flush=True)
 
 
 def evaluate(tag):
+    """Til va qism (o'ylash / javob) bo'yicha har qadamdagi argmax mosligi."""
     drafter.eval()
-    sums, n = [0.0] * args.steps, 0
     by = {}
     for r in evals:
         o = run(r, train=False)
         if o is None:
             continue
-        _, _, accs, k = o
-        for s in range(args.steps):
-            sums[s] += accs[s] * k
-        n += k
-        d = by.setdefault(r["lang"], [[0.0] * args.steps, 0])
-        for s in range(args.steps):
-            d[0][s] += accs[s] * k
-        d[1] += k
+        _, _, hits, answer = o
+        for part, msk in (("o'ylash", ~answer), ("javob", answer)):
+            if msk.sum() == 0:
+                continue
+            d = by.setdefault((r["lang"], part), [[0.0] * args.steps, 0])
+            for s in range(args.steps):
+                d[0][s] += hits[s][msk].sum().item()
+            d[1] += int(msk.sum())
     drafter.train()
-    msg = " ".join(f"{lg}: " + "/".join(f"{x/c:.1%}" for x in v) for lg, (v, c) in by.items())
-    print(f"[SINOV {tag}] qadamlar bo'yicha mos kelish: " + "/".join(f"{x/n:.1%}" for x in sums) + f"  | {msg}", flush=True)
+    print(f"[SINOV {tag}] argmax mosligi, qadamlar 1/2/3:", flush=True)
+    for (lg, part), (v, c) in sorted(by.items()):
+        print(f"    {lg:2s} {part:8s} " + " / ".join(f"{x/c:5.1%}" for x in v) + f"   ({c} token)", flush=True)
 
 
 # ---------------------------------------------------------------- o'qitish
@@ -227,9 +239,13 @@ for it in range(total_steps):
     o = run(recs[it % len(recs)])
     if o is None:
         continue
-    loss, ls, accs, _ = o
+    loss, ls, hits, _ = o
     (loss / args.accum).backward()
-    run_l.append(ls); run_a.append(accs)
+    del loss
+    run_l.append(ls); run_a.append([h.float().mean().item() for h in hits])
+    if it == 0 or it == 9:
+        print(f"  [{it+1}-namuna] xotira cho'qqisi {torch.cuda.max_memory_allocated()/2**30:.1f} GiB, bo'sh "
+              f"{int(open('/proc/meminfo').read().split('MemAvailable:')[1].split()[0])/2**20:.0f} GiB", flush=True)
     if (it + 1) % args.accum == 0:
         torch.nn.utils.clip_grad_norm_(drafter.parameters(), 1.0)
         opt.step(); sched.step(); opt.zero_grad(set_to_none=True)
