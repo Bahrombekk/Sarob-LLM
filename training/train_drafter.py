@@ -28,11 +28,13 @@ ap.add_argument("--lr", type=float, default=5e-5)
 ap.add_argument("--epochs", type=float, default=1.0)
 ap.add_argument("--accum", type=int, default=8)
 ap.add_argument("--max_len", type=int, default=4096)
-ap.add_argument("--kl_chunk", type=int, default=512)
+ap.add_argument("--kl_chunk", type=int, default=256)
 ap.add_argument("--ce_w", type=float, default=0.1)
 ap.add_argument("--eval_n", type=int, default=200, help="o'qitilmaydigan sinov namunalari soni")
 ap.add_argument("--limit", type=int, default=0, help="faqat shuncha namuna (sinov uchun)")
 ap.add_argument("--save_every", type=int, default=2000)
+ap.add_argument("--warmup", type=int, default=100)
+ap.add_argument("--overfit", action="store_true", help="tekshiruv: sinov namunalarida ham o'qitadi")
 args = ap.parse_args()
 torch.manual_seed(0); random.seed(0)
 dev = "cuda"
@@ -135,7 +137,7 @@ for l in open(args.data, encoding="utf-8"):
 random.shuffle(recs)
 if args.limit:
     recs = recs[: args.limit + args.eval_n]
-evals, recs = recs[: args.eval_n], recs[args.eval_n:]
+evals, recs = recs[: args.eval_n], (recs if args.overfit else recs[args.eval_n:])
 print(f"o'qitish {len(recs)}, sinov {len(evals)}", flush=True)
 
 
@@ -163,7 +165,7 @@ def evaluate(tag):
 # ---------------------------------------------------------------- o'qitish
 total_steps = int(len(recs) * args.epochs)
 opt = torch.optim.AdamW(drafter.parameters(), lr=args.lr, betas=(0.9, 0.95), weight_decay=0.0)
-warm = 100
+warm = args.warmup
 sched = torch.optim.lr_scheduler.LambdaLR(
     opt, lambda u: min(1, (u + 1) / warm) * 0.5 * (1 + math.cos(math.pi * min(1, u * args.accum / max(1, total_steps)))))
 evaluate("boshlang'ich")
@@ -185,7 +187,8 @@ for it in range(total_steps):
         el = time.time() - t0
         print(f"{time.strftime('%H:%M')} {it+1}/{total_steps} loss " + "/".join(f"{x:.3f}" for x in la) +
               "  mos " + "/".join(f"{x:.1%}" for x in aa) +
-              f"  {el/(it+1):.2f}s/namuna  qoldi ~{(total_steps-it-1)*el/(it+1)/3600:.1f} soat", flush=True)
+              f"  {el/(it+1):.2f}s/namuna  qoldi ~{(total_steps-it-1)*el/(it+1)/3600:.1f} soat"
+              f"  xotira cho'qqisi {torch.cuda.max_memory_allocated()/2**30:.0f} GiB", flush=True)
         run_l, run_a = [], []
     if (it + 1) % args.save_every == 0 or it + 1 == total_steps:
         evaluate(f"{it+1}")
@@ -194,4 +197,5 @@ for it in range(total_steps):
         for f in ("tokenizer.json", "tokenizer_config.json", "generation_config.json"):
             if os.path.exists(os.path.join(args.drafter, f)):
                 shutil.copy(os.path.join(args.drafter, f), args.out)
+        os.system(f"chmod -R a+rX {args.out}")
         print(f"saqlandi: {args.out}", flush=True)

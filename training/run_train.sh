@@ -22,7 +22,7 @@ bash /tmp/vllm_train.sh >/dev/null; wait_up
 echo "$(date +%H:%M) Gemma 0.25 bilan ishlayapti, bo'sh xotira $(avail_gb) GB"
 
 docker rm -f sarob-train-run >/dev/null 2>&1
-docker run -d --name sarob-train-run --device nvidia.com/gpu=all --ipc host \
+docker run -d --name sarob-train-run --device nvidia.com/gpu=all --ipc host -e PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
   -v ~/models:/models -v ~/sarob/train:/data --entrypoint python3 vllm/vllm-openai:v0.31.0 \
   -u /data/train_drafter.py $ARGS >/dev/null
 docker logs -f sarob-train-run &
