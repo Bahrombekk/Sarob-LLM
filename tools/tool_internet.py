@@ -16,6 +16,27 @@ MAX_CHARS = 15000
 SEARXNG = "http://127.0.0.1:8095/search"
 BRAUZER = "http://127.0.0.1:8097/amal"
 
+# Bitta HTTP sessiya: HTTPS ulanishlar qayta ishlatiladi (har so'rovda yangi TLS qo'l siqish yo'q)
+HTTP = requests.Session()
+HTTP.headers.update(UA)
+
+# Qisqa muddatli kesh: qayta qidiruv, javobni qayta yaratish va kuzatuv savollarida tarmoqni kutmaymiz
+_CACHE = {}
+
+
+def _cached(key, ttl, fn):
+    import time
+
+    hit = _CACHE.get(key)
+    if hit and time.time() - hit[0] < ttl:
+        return hit[1]
+    val = fn()
+    if isinstance(val, str) and not val.startswith(("XATO", "Hech narsa topilmadi")):
+        if len(_CACHE) > 500:
+            _CACHE.clear()
+        _CACHE[key] = (time.time(), val)
+    return val
+
 
 def _clean_html(html: str) -> str:
     soup = BeautifulSoup(html, "html.parser")
@@ -40,8 +61,12 @@ def _relevant(text, words, limit=2500):
 
 def _fast_fetch(url, timeout=5):
     """Tezkor sahifa o'qish (avtomatik ochish va chuqur tadqiqot uchun): brauzer zaxirasiz, 5 soniyagacha."""
+    return _cached(("fast", url), 900, lambda: _fast_fetch_raw(url, timeout))
+
+
+def _fast_fetch_raw(url, timeout):
     try:
-        r = requests.get(url, headers=UA, timeout=timeout)
+        r = HTTP.get(url, timeout=timeout)
         r.raise_for_status()
     except Exception as e:
         return f"XATO: {e}"
@@ -115,14 +140,19 @@ class Tools:
 
     def _search(self, query: str, max_results: int = 6) -> str:
         n = max(1, min(int(max_results), 10))
+        return _cached(("search", query.strip().lower(), n), 600, lambda: self._search_raw(query, n))
+
+    def _search_raw(self, query: str, n: int) -> str:
         res, errors = [], []
-        # 1) O'zimizning SearXNG (bir nechta qidiruv tizimi bir vaqtda)
+        # 1) O'zimizning SearXNG (bir nechta qidiruv tizimi bir vaqtda).
+        # timeout_limit: SearXNG eng sekin qidiruv tizimini kutmay, 5 soniyada tayyor natijalarni qaytaradi.
         try:
             # Til ko'rsatilmasa SearXNG natijalari ancha yomon (sinovda): kirill — ruscha, aks holda inglizcha
             lang = "ru-RU" if re.search(r"[а-яёўқғҳА-ЯЁЎҚҒҲ]", query) else "en-US"
-            d = requests.get(SEARXNG, params={"q": query, "format": "json", "language": lang}, timeout=20).json()
+            p = {"q": query, "format": "json", "timeout_limit": 5}
+            d = HTTP.get(SEARXNG, params={**p, "language": lang}, timeout=10).json()
             if len(d.get("results", [])) < 3:
-                d = requests.get(SEARXNG, params={"q": query, "format": "json"}, timeout=20).json()
+                d = HTTP.get(SEARXNG, params=p, timeout=10).json()
             seen = set()
             for r in d.get("results", []):
                 if r.get("url") in seen:
@@ -138,18 +168,32 @@ class Tools:
                 [{"title": r["title"], "url": r["href"], "snippet": r["body"]} for r in res], ensure_ascii=False
             )
 
-        # 2) Zaxira: ddgs orqali qidiruv tizimlarini navbat bilan sinaymiz
+        # 2) Zaxira: ddgs qidiruv tizimlarini PARALLEL sinaymiz, birinchi natija bergani olinadi (9 soniya ichida).
+        # Avval navbat bilan edi: eng yomon holatda 6 x 12 soniya.
+        from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+
         from ddgs import DDGS
 
-        for backend in ("duckduckgo", "brave", "google", "mojeek", "yahoo", "auto"):
+        def one(backend):
             try:
-                res = list(DDGS(timeout=12).text(query, max_results=n, backend=backend))
+                out = list(DDGS(timeout=8).text(query, max_results=n, backend=backend))
             except Exception as e:
                 errors.append(f"{backend}: {str(e)[:80]}")
-                continue
-            res = [r for r in res if "bing.com/aclick" not in r.get("href", "")]
-            if res:
-                break
+                return []
+            return [r for r in out if "bing.com/aclick" not in r.get("href", "")]
+
+        ex = ThreadPoolExecutor(6)
+        pending = {ex.submit(one, b) for b in ("duckduckgo", "brave", "google", "mojeek", "yahoo", "auto")}
+        import time as _t
+
+        deadline = _t.time() + 9
+        while pending and not res and _t.time() < deadline:
+            done, pending = wait(pending, timeout=max(0.1, deadline - _t.time()), return_when=FIRST_COMPLETED)
+            for f in done:
+                if f.result():
+                    res = f.result()
+                    break
+        ex.shutdown(wait=False, cancel_futures=True)
         if not res:
             return ("Hech narsa topilmadi (" + "; ".join(errors[-2:]) + "). So'rovni boshqacha so'zlar bilan "
                     "yoki boshqa tilda (inglizcha/ruscha) qayta qidirib ko'r. Baribir topilmasa, foydalanuvchiga ochiq ayt.")
@@ -308,7 +352,9 @@ class Tools:
         if sana:
             url += sana.strip() + "/"
         try:
-            data = requests.get(url, headers=UA, timeout=20).json()
+            # rasmiy kurs kuniga bir marta o'zgaradi — 1 soat keshlaymiz
+            raw = _cached(("cbu", url), 3600, lambda: HTTP.get(url, timeout=10).text)
+            data = json.loads(raw)
         except Exception as e:
             return f"XATO: Markaziy bank sayti javob bermadi ({e})."
         if not data:
@@ -325,13 +371,21 @@ class Tools:
         :param url: Full URL starting with http:// or https://
         :return: Page text (truncated) or an error message.
         """
+        return _cached(("page", url), 900, lambda: self._sahifani_ochish_raw(url))
+
+    def _sahifani_ochish_raw(self, url: str) -> str:
+        # Kutish: ulanish 4 s, javob 10 s (avval 12 s + brauzer 30 s = 42 s gacha kutish bo'lardi)
         try:
-            r = requests.get(url, headers=UA, timeout=12)
+            r = HTTP.get(url, timeout=(4, 10))
             r.raise_for_status()
         except Exception as e:
+            # 404/410 — sahifa yo'q, brauzer ham ocholmaydi
+            code = getattr(getattr(e, "response", None), "status_code", None)
+            if code in (404, 410):
+                return f"XATO: sahifa topilmadi ({code}). Foydalanuvchiga ocha olmaganingni ochiq ayt, mazmunini taxmin qilma."
             # Sayt oddiy so'rovni bloklagan bo'lishi mumkin: haqiqiy brauzer bilan urinib ko'ramiz
             try:
-                b = requests.post(BRAUZER, json={"sessiya": "sahifa", "amal": "ochish", "url": url}, timeout=30).json()
+                b = HTTP.post(BRAUZER, json={"sessiya": "sahifa", "amal": "ochish", "url": url}, timeout=20).json()
                 if b.get("holat") == "ok" and b.get("matn"):
                     return f"URL: {b.get('url')}\n\n{b['matn']}\n\n[Brauzerda ochildi. Skrinshot: {b.get('skrinshot')}]"
             except Exception:
@@ -340,9 +394,9 @@ class Tools:
         ctype = r.headers.get("content-type", "")
         text = _clean_html(r.text) if "html" in ctype else r.text
         # JavaScript bilan chiziladigan sahifa: matn juda kam bo'lsa, haqiqiy brauzerda ochamiz
-        if "html" in ctype and len(text) < 1500:
+        if "html" in ctype and len(text) < 800:
             try:
-                b = requests.post(BRAUZER, json={"sessiya": "sahifa", "amal": "ochish", "url": url}, timeout=30).json()
+                b = HTTP.post(BRAUZER, json={"sessiya": "sahifa", "amal": "ochish", "url": url}, timeout=20).json()
                 if b.get("holat") == "ok" and len(b.get("matn", "")) > len(text):
                     text = b["matn"] + f"\n\n[Brauzerda ochildi. Skrinshot: {b.get('skrinshot')}]"
             except Exception:

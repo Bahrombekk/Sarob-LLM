@@ -1,6 +1,7 @@
 #!/bin/bash
 # Sarob miyasi: Gemma 4 26B-A4B (unsloth NVFP4, Marlin'siz) + MTP spekulyativ dekodlash, vLLM'da
 # Taxminchi: o'zbekchaga o'qitilgan (training/), k=2 — o'zbekcha javob 43.8 -> 70.5 tok/s
+# lm_head FP8 (serving/tools/untie_lmhead_fp8.py): +12% — o'zbekcha 69 -> 77 tok/s, sifat takroriy sinovda o'zgarmadi
 # Sinov: NVIDIA nusxasidan ~30% tez (59-70 tok/s) va o'ylash javobga kamroq aralashadi (1/12 vs 3-4/12)
 # Port: 8000 (OpenAI API), faqat lokal (127.0.0.1)
 IMAGE=${IMAGE:-vllm/vllm-openai:v0.31.0}
@@ -11,7 +12,7 @@ docker run -d --name sarob-vllm --restart unless-stopped \
   -v "$HOME/models:/models:ro" \
   -v "$HOME/.cache/vllm:/root/.cache/vllm" \
   "$IMAGE" \
-  --model /models/gemma4-26b-unsloth-nvfp4 \
+  --model ${MODEL:-/models/gemma4-26b-nvfp4-lmfp8} \
   --served-model-name gemma-4-26b \
   --host 127.0.0.1 --port 8000 \
   --kv-cache-dtype fp8 \
