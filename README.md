@@ -53,6 +53,19 @@ ssh dasuty@192.168.136.153
 cd ~/sarob && ./start_services.sh && ./sarob_vllm.sh && ./sarob_vllm_pro.sh && ./sarob_webui.sh
 ```
 
+### Spark'dagi tuzilma
+
+Spark'da hammasi bitta joyda — `~/Desktop/Sarob-LLM` (`scripts/spark_layout.sh` yig'adi):
+
+```
+~/Desktop/Sarob-LLM/
+├── serving/ webui/ tools/ ...   kod (shu repozitoriy, git clone)
+├── runtime/                     ishlab turgan fayllar: bazalar, workspace, bot, o'qitish ma'lumotlari, kalitlar
+├── models -> ~/models           modellar (havola)
+└── logs/                        yuklash loglari
+~/sarob -> ~/Desktop/Sarob-LLM/runtime   (eski yo'llar ishlashda davom etadi)
+```
+
 Maxfiy fayllar faqat Spark'da turadi va loyihaga kirmaydi (`.gitignore`):
 `~/sarob/.jupyter_token`, `~/sarob/.terminal_key`, `~/.owui_secret`, `~/sarob/bot/.telegram_token`, `~/sarob/pg/*.dsn`.
 

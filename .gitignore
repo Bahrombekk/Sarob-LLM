@@ -18,3 +18,8 @@ __pycache__/
 *.pyc
 models/
 data/
+
+# Spark: ishlab turgan fayllar va modellar (scripts/spark_layout.sh)
+runtime/
+models
+logs/
