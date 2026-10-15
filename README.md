@@ -74,14 +74,28 @@ Maxfiy fayllar faqat Spark'da turadi va loyihaga kirmaydi (`.gitignore`):
 | Ko'rsatkich | Avval | Hozir |
 |---|---|---|
 | Gemma tezligi | 46–53 tok/s | **59–70 tok/s** (unsloth nusxasi, Marlin'siz) |
-| O'zbekcha javob tezligi (MTP k=4 → k=2) | 34.5 tok/s | **44.6 tok/s (+29%)** |
+| O'zbekcha javob tezligi (MTP k=4 → k=2) | 34.5 tok/s | 44.6 tok/s (+29%) |
+| O'zbekcha javob tezligi (taxminchi o'zbekchaga o'qitildi) | 44.6 tok/s | **70.5 tok/s (+58%; jami 2×)** |
 | 26 ta vazifa umumiy vaqti | 1549 s | **855 s (−45%)** |
 | Salom / tarjima | 3–8 s | **0.4–2 s** |
 | Chuqur tadqiqot asbobi | 17–23 s | **5 s** |
 | Uzun suhbat ("Yengil suhbat" yoqilganda) | 22 178 token, 6.8 s | **4 169 token, 2.3 s** |
 
-**Topilgan asosiy muammo:** MTP taxminchisi o'zbekchada atigi 10% to'g'ri taxmin qiladi (inglizcha 43%),
-o'zbekcha matn 2× ko'p tokenga bo'linadi → o'zbekcha javob inglizchadan ~3.5× sekin. Yechim — `training/`.
+**Topilgan asosiy muammo:** MTP taxminchisi o'zbekchada atigi 10% to'g'ri taxmin qilardi (inglizcha 43%),
+o'zbekcha matn 2× ko'p tokenga bo'linadi → o'zbekcha javob inglizchadan ancha sekin edi.
+
+**Yechim (`training/`):** taxminchi (Gemma 4 assistant, 4 qatlam) 16 400 ta Sarob javobida (80% o'zbekcha)
+Gemma taqsimotiga KL-distillatsiya bilan o'qitildi (~15 soat Spark'da). Natija:
+
+| | Oldin | Keyin |
+|---|---|---|
+| O'zbekcha javob, Gemma bilan mos kelish (1-qadam) | 55.3% | **82.2%** |
+| O'zbekcha, vLLM'da qabul qilingan taxminlar | 9.4% | **29.3%** |
+| O'zbekcha javob tezligi | 43.8 tok/s | **70.5 tok/s** |
+| Inglizcha / ruscha tezlik | 69.8 / 68.0 | 66.1 / 64.8 (−5%) |
+
+O'qitilgan taxminchi Spark'da: `~/models/gemma4-26b-assistant-uz` (840 MB, repozitoriyga kirmaydi).
+Eskisiga qaytish: `DRAFTER=/models/gemma4-26b-assistant ./sarob_vllm.sh`.
 
 ## Muhim saboqlar
 
