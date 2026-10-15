@@ -80,7 +80,7 @@ TOOLS = [
 
 def system_prompt():
     t = time.localtime()
-    return (open(f"{HOME}/sarob/sarob_prompt.md", encoding="utf-8").read()
+    return (open(os.environ.get("SAROB_PROMPT", f"{HOME}/sarob/sarob_prompt.md"), encoding="utf-8").read()
             .replace("{{CURRENT_DATE}}", time.strftime("%Y-%m-%d", t))
             .replace("{{CURRENT_WEEKDAY}}", time.strftime("%A", t))
             .replace("{{CURRENT_TIME}}", time.strftime("%H:%M", t)))
