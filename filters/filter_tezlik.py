@@ -10,6 +10,10 @@ import re
 CHAT = re.compile(r"^\W*(salom|assalomu|assalom|hello|hi|привет|здравствуй|rahmat|raxmat|tashakkur|spasibo|спасибо|"
                   r"xayr|ko'rishguncha|qalaysan|qalesan|qandaysan|yaxshimisan|ishlayapsanmi|ishlayabsanmi|ok|okey|"
                   r"tushunarli|zo'r|ajoyib|yaxshi|mayli|ha|yo'q)\b", re.I)
+# Sarobning o'zi haqidagi savollar (kimsan, nima qila olasan, qanday yordam bera olasan) — o'ylash kerak emas
+META = re.compile(r"(\bkimsan\b|sen kim|isming|o'zingni tanishtir|nima(lar)? qila olasan|nima(lar)?ni bilasan|"
+                  r"qanday yordam|yordam bera olasan|nimaga qodirsan|imkoniyatlaring|nima ish qila|"
+                  r"кто ты|что ты умеешь|who are you|what can you do)", re.I)
 # Matnni o'zgartirish (tarjima, tahrir) — fikrlash kam kerak
 REWRITE = re.compile(r"(tarjima|ruschaga|inglizchaga|o'zbekchaga|lotinga|kirillga|переведи|imlo|xatolarini tuzat|"
                      r"qisqartir|soddalashtir|qayta yoz)", re.I)
@@ -64,6 +68,8 @@ class Filter:
             return None                      # rasm bilan ishlash — standart
         if len(t.split()) <= 4 and CHAT.match(t) and not re.search(r"\d", t):
             return 32                        # salom / rahmat — deyarli o'ylamaydi
+        if META.search(t) and len(t.split()) <= 10 and not HARD.search(t):
+            return 32                        # o'zi haqida savol — tayyor javob, o'ylash shart emas
         if REWRITE.search(t) and len(t) < 600 and not HARD.search(t):
             return 32                        # tarjima / tahrir
         if HARD.search(t) or (COUNT.search(t) and len(re.findall(r"\d+", t)) >= 2):
