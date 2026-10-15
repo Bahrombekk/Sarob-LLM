@@ -65,7 +65,7 @@ class Filter:
         if after_tool:
             return None                      # asbob natijasidan keyin — model sozlamasidagi standart (512)
         if has_img:
-            return None                      # rasm bilan ishlash — standart
+            return 1024                      # rasmdagi masala/jadval ko'pincha murakkab: 512 da o'ylash kesilib, javobga oqqan
         if len(t.split()) <= 4 and CHAT.match(t) and not re.search(r"\d", t):
             return 32                        # salom / rahmat — deyarli o'ylamaydi
         if META.search(t) and len(t.split()) <= 10 and not HARD.search(t):
