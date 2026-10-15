@@ -23,3 +23,16 @@ Boshqa Spark'da (inglizcha, k=4) NVFP4'dan tez deb e'lon qilingan edi. Bizda o'z
 | Qabul qilinish (uz) | 29.8% | 32.1% | 40.5% |
 
 Rad etildi: og'irliklar 27 GB (NVFP4 17 GB) — o'qish ko'p, tezlik past.
+
+## Taxminchi lm_head FP8 va moslashuvchan tekshiruv
+
+| Variant | O'zbekcha | Inglizcha | Ruscha |
+|---|---|---|---|
+| Hozirgi (BF16 taxminchi, k=2) | 77.6 | 73.4 | 71.1 |
+| **FP8 taxminchi, k=2** | **85.2** | **81.3** | **77.9** |
+| FP8 taxminchi, k=3 | 83.4 | 78.7 | 74.1 |
+| Moslashuvchan tekshiruv, k=3 | 67.2 | 67.7 | 64.8 |
+| Moslashuvchan tekshiruv, k=4 | 58.6 | 62.4 | 56.2 |
+
+FP8 taxminchi qoldirildi (qabul qilinish 29.5% — o'zgarmadi; spekulyativ dekodlash yo'qotishsiz, javob sifatiga ta'sir yo'q).
+Moslashuvchan tekshiruv rad etildi.

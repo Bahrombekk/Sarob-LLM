@@ -76,7 +76,8 @@ Maxfiy fayllar faqat Spark'da turadi va loyihaga kirmaydi (`.gitignore`):
 | Gemma tezligi | 46–53 tok/s | **59–70 tok/s** (unsloth nusxasi, Marlin'siz) |
 | O'zbekcha javob tezligi (MTP k=4 → k=2) | 34.5 tok/s | 44.6 tok/s (+29%) |
 | O'zbekcha javob tezligi (taxminchi o'zbekchaga o'qitildi) | 44.6 tok/s | 70.5 tok/s (+58%) |
-| O'zbekcha javob tezligi (`lm_head` FP8) | 69.1 tok/s | **77.6 tok/s (+12%; kun boshidan 2.25×)** |
+| O'zbekcha javob tezligi (`lm_head` FP8) | 69.1 tok/s | 77.6 tok/s (+12%) |
+| O'zbekcha javob tezligi (taxminchi `lm_head` ham FP8) | 77.6 tok/s | **85.2 tok/s (+10%; kun boshidan 2.5×)** |
 | Takroriy internet so'rovi / valyuta kursi | 1–2 s | **0 s** (kesh) |
 | Mavjud bo'lmagan sahifa (404) | 30 s gacha | **0.1 s** |
 | 26 ta vazifa umumiy vaqti | 1549 s | **855 s (−45%)** |
