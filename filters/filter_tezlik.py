@@ -12,6 +12,8 @@ CHAT = re.compile(r"^\W*(salom|assalomu|assalom|hello|hi|привет|здрав
                   r"tushunarli|zo'r|ajoyib|yaxshi|mayli|ha|yo'q)\b", re.I)
 # Oddiy (murakkab emas) savollar uchun o'ylash chegarasi
 DEFAULT_BUDGET = 512
+# Bitta so'rovdagi rasmlar chegarasi (Gemma va Pro serverlarida --limit-mm-per-prompt image=32)
+MAX_IMAGES = 32
 
 # Sarobning o'zi haqidagi savollar (kimsan, nima qila olasan, qanday yordam bera olasan) — o'ylash kerak emas
 META = re.compile(r"(\bkimsan\b|sen kim|isming|o'zingni tanishtir|nima(lar)? qila olasan|nima(lar)?ni bilasan|"
@@ -94,9 +96,32 @@ class Filter:
             pass
         return body
 
+    def _cap_images(self, body):
+        """Butun suhbat tarixidagi rasmlar vLLM chegarasidan (--limit-mm-per-prompt) oshmasin:
+        eng oxirgi MAX_IMAGES ta rasm qoladi, eskilari matnli belgi bilan almashtiriladi.
+        Aks holda chatda rasm ko'payganda har bir yangi savol "At most N image(s)" xatosini beradi."""
+        msgs = body.get("messages") or []
+        seen = 0
+        for m in reversed(msgs):
+            c = m.get("content")
+            if not isinstance(c, list):
+                continue
+            new = []
+            for p in reversed(c):
+                if isinstance(p, dict) and p.get("type") == "image_url":
+                    seen += 1
+                    if seen > MAX_IMAGES:
+                        p = {"type": "text", "text": "[oldingi rasm olib tashlandi]"}
+                new.append(p)
+            m["content"] = list(reversed(new))
+
     def request(self, body: dict, __user__: dict = None, __model__: dict = None) -> dict:
         # Eslatma: Open WebUI model parametrlarini (custom_params) bu filtrdan KEYIN qo'llaydi,
         # shuning uchun thinking_token_budget model sozlamalarida bo'lmasligi kerak — uni faqat shu filtr belgilaydi.
+        try:
+            self._cap_images(body)
+        except Exception:
+            pass
         try:
             ids = " ".join(str(x) for x in (body.get("model"), (__model__ or {}).get("id"),
                                             ((__model__ or {}).get("info") or {}).get("base_model_id")))

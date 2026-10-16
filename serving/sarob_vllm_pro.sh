@@ -19,7 +19,7 @@ docker run -d --name sarob-vllm-pro --restart unless-stopped \
   --max-num-batched-tokens 4096 \
   --kernel-config '{"enable_flashinfer_autotune": false}' \
   --speculative-config "$SPEC" \
-  --limit-mm-per-prompt '{"image":16,"video":0}' \
+  --limit-mm-per-prompt '{"image":32,"video":0}' \
   --reasoning-parser qwen3 \
   --reasoning-config '{"reasoning_parser":"qwen3","reasoning_start_str":"<think>","reasoning_end_str":"</think>"}' \
   --enable-auto-tool-choice --tool-call-parser qwen3_coder \
