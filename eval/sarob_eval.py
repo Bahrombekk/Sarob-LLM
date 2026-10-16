@@ -22,6 +22,14 @@ exec(open(f"{HOME}/sarob/tool_baza.py", encoding="utf-8").read(), bmod.__dict__)
 DB = bmod.Tools()
 
 
+FILT = None
+if os.environ.get("SAROB_FILTER"):
+    fmod = types.ModuleType("filter_tezlik")
+    exec(open(f"{HOME}/sarob/filter_tezlik.py", encoding="utf-8").read(), fmod.__dict__)
+    fmod.DEFAULT_BUDGET = int(os.environ.get("SAROB_DEFAULT", fmod.DEFAULT_BUDGET))
+    FILT = fmod.Filter()
+
+
 def execute_code(code: str) -> str:
     """Kodni Jupyter konteynerida bajaradi (Open WebUI'dagi execute_code o'rniga)."""
     name = f"_eval_{uuid.uuid4().hex[:8]}.py"
@@ -196,6 +204,9 @@ def run(idx, cat, q):
             body["chat_template_kwargs"] = {"enable_thinking": True}
             if os.environ.get("SAROB_BUDGET"):
                 body["thinking_token_budget"] = int(os.environ["SAROB_BUDGET"])
+            elif os.environ.get("SAROB_FILTER"):
+                # ishlab chiqarishdagidek: chegarani tezlik filtri tanlaydi (SAROB_DEFAULT — oddiy savollar chegarasi)
+                FILT.request(body)
         req = urllib.request.Request(VLLM, json.dumps(body).encode(), {"Content-Type": "application/json"})
         try:
             _t = time.time()

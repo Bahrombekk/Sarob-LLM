@@ -10,6 +10,9 @@ import re
 CHAT = re.compile(r"^\W*(salom|assalomu|assalom|hello|hi|привет|здравствуй|rahmat|raxmat|tashakkur|spasibo|спасибо|"
                   r"xayr|ko'rishguncha|qalaysan|qalesan|qandaysan|yaxshimisan|ishlayapsanmi|ishlayabsanmi|ok|okey|"
                   r"tushunarli|zo'r|ajoyib|yaxshi|mayli|ha|yo'q)\b", re.I)
+# Oddiy (murakkab emas) savollar uchun o'ylash chegarasi
+DEFAULT_BUDGET = 512
+
 # Sarobning o'zi haqidagi savollar (kimsan, nima qila olasan, qanday yordam bera olasan) — o'ylash kerak emas
 META = re.compile(r"(\bkimsan\b|sen kim|isming|o'zingni tanishtir|nima(lar)? qila olasan|nima(lar)?ni bilasan|"
                   r"qanday yordam|yordam bera olasan|nimaga qodirsan|imkoniyatlaring|nima ish qila|"
@@ -97,7 +100,7 @@ class Filter:
         try:
             ids = " ".join(str(x) for x in (body.get("model"), (__model__ or {}).get("id"),
                                             ((__model__ or {}).get("info") or {}).get("base_model_id")))
-            default = 1024 if ("pro" in ids.lower() or "qwen" in ids.lower()) else 512
+            default = 1024 if ("pro" in ids.lower() or "qwen" in ids.lower()) else DEFAULT_BUDGET
             b = self._budget(body)
             body["thinking_token_budget"] = b if b is not None else default
             body["max_tokens"] = max(int(body.get("max_tokens") or 0), body["thinking_token_budget"] + 2048)
