@@ -55,14 +55,14 @@ def rasm_dir(chat_id):
     return d
 
 
-def rasmlardan_excel(fayl_nomi: str = "jadval") -> str:
+def rasmlardan_excel(fayl_nomi: str = "jadval", shart: str = "", usul: str = "aniq") -> str:
     """Bu suhbatda yuborilgan barcha rasmlardagi jadvallarni bitta Excel faylga yig'adi."""
     d = rasm_dir(CURRENT_CHAT.get())
     imgs = sorted(os.listdir(d))
     if not imgs:
         return "Bu suhbatda rasm yo'q. Foydalanuvchidan jadval skrinshotlarini yuborishni so'ra."
     files = [{"file": {"path": os.path.join(d, f), "filename": f, "meta": {"content_type": "image/jpeg"}}} for f in imgs]
-    r = RASM.rasmlardan_excel(fayl_nomi, __files__=files)
+    r = RASM.rasmlardan_excel(fayl_nomi, shart, usul, __files__=files)
     return r.replace(_rasm.PUBLIC, "(Telegramga yuboriladi)")
 
 
@@ -136,7 +136,9 @@ TOOLS = [
      "parameters": {"type": "object", "properties": {"code": S}, "required": ["code"]}}},
     {"type": "function", "function": {"name": "rasmlardan_excel",
      "description": (_rasm.Tools.rasmlardan_excel.__doc__ or "").strip(),
-     "parameters": {"type": "object", "properties": {"fayl_nomi": S}, "required": []}}},
+     "parameters": {"type": "object", "properties": {"fayl_nomi": S, "shart": S,
+                                                     "usul": {"type": "string", "enum": ["aniq", "hujjat"]}},
+                    "required": []}}},
 ]
 
 TELEGRAM_RULES = """
