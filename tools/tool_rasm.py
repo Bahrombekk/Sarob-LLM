@@ -321,6 +321,12 @@ class Tools:
             # kalit: deyarli har qatorda to'la va eng ko'p noyob qiymatli ustun (teng bo'lsa — chaproqdagisi)
             cand = [j for j in range(n) if len(filled(j)) >= 0.8 * max(1, len(allrows))]
             key = max(cand or range(n), key=lambda j: (len(set(filled(j))), -j))
+            # Tartib raqami (№) ustuni bo'lsa — kalit shu: ism kabi matnli ustun ikki o'qishda biroz farq qiladi va
+            # takrorlar qolib ketadi (sinov: har qatorning bo'sh kartali ikkinchi nusxasi qolgan edi)
+            num_col = next((j for j, c in enumerate(unified)
+                            if re.fullmatch(r"(№|n[°'ºo]?\.?|#|no\.?|t/r|т/р)", str(c).strip().lower())), None)
+            if num_col is not None and len([v for v in filled(num_col) if re.fullmatch(r"\d+", v)]) >= 0.8 * max(1, len(allrows)):
+                key = num_col
             bi = next((j for j, c in enumerate(unified) if "belgi" in str(c).lower()), None)
             seen, rows = {}, []
             for r in allrows:
