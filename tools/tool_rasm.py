@@ -177,7 +177,13 @@ def _align(cols, canon):
     Ustunlarning yarmidan kami mos kelsa — None (sarlavha o'ylab topilgan, qayta o'qish kerak)."""
     import difflib
 
-    nz = lambda s: re.sub(r"[\W_]+", "", str(s).lower())
+    def nz(s):
+        s = str(s).strip().lower()
+        # tartib raqami ustuni turlicha yoziladi: №, N°, N', #, No — hammasi bitta ("№" \w emas, aks holda bo'sh bo'lib qoladi)
+        if re.fullmatch(r"(№|n[°'ºo]?\.?|#|no\.?|t/r|т/р)", s):
+            return "tartibraqam"
+        return re.sub(r"[\W_]+", "", s)
+
     cn = [nz(c) for c in canon]
     mp, hits = [], 0
     for c in cols:
@@ -234,6 +240,7 @@ class Tools:
         if not imgs:
             return "Bu chatda rasm topilmadi. Foydalanuvchidan jadval skrinshotlarini yuborishni so'ra."
         reader = _read_table_ocr if (usul or "").lower().startswith("hujjat") else _read_table_vlm
+        unified = None
 
         with ThreadPoolExecutor(4) as ex:
             parts = [p for ps in ex.map(_prepare, imgs) for p in ps]
@@ -273,6 +280,22 @@ class Tools:
                         rws, c = new, canon
                     aligned.append((name, c, rws, err))
                 results = aligned
+                unified = canon
+                # Shart (masalan, qizil nuqta) berilsa — har bo'lak ikkinchi marta o'qiladi va birlashtiriladi:
+                # sinovda bitta o'qish ba'zan belgini ko'rmay qolardi (7 dan 6), ikkinchisi bo'shliqni to'ldiradi.
+                if shart and reader is _read_table_vlm:
+                    second = list(ex.map(lambda p: reader(p, "", canon), parts))
+                    for name, c, rws, err in second:
+                        if rws and c:
+                            mp = _align(c, canon) or list(range(min(max(map(len, rws)), len(canon))))
+                            new = []
+                            for r in rws:
+                                row = [""] * len(canon)
+                                for src, dst in enumerate(mp):
+                                    if dst is not None and src < len(r):
+                                        row[dst] = r[src]
+                                new.append(row)
+                            results.append((name + " (2)", canon, new, ""))
 
         import pandas as pd
 
@@ -282,7 +305,39 @@ class Tools:
         def sig(cols):
             return tuple(re.sub(r"\W+", "", str(c).lower()) for c in cols)
 
-        for name, cols, rws, err in results:
+        if unified:
+            # Hammasi bitta qolipda: qatorlar yig'iladi, takrorlar faqat KALIT ustun bo'yicha olib tashlanadi.
+            # (Avvalgi "chegara takrorlari" usuli rasmlar teskari tartibda kelganda kerakli qatorlarni ham tashlardi:
+            # 19 fotoda 188 o'rniga 126 qator qolgan.)
+            allrows = []
+            for name, cols, rws, err in results:
+                if err or not rws:
+                    errors.append(f"{name}: {err or 'jadval topilmadi'}")
+                    continue
+                allrows += [[("" if v is None else str(v).strip()) for v in r] for r in rws if any(r)]
+            nz = lambda v: re.sub(r"[\s⭐★]+", " ", v).strip().lower()
+            n = len(unified)
+            filled = lambda j: [nz(r[j]) for r in allrows if j < len(r) and nz(r[j])]
+            # kalit: deyarli har qatorda to'la va eng ko'p noyob qiymatli ustun (teng bo'lsa — chaproqdagisi)
+            cand = [j for j in range(n) if len(filled(j)) >= 0.8 * max(1, len(allrows))]
+            key = max(cand or range(n), key=lambda j: (len(set(filled(j))), -j))
+            bi = next((j for j, c in enumerate(unified) if "belgi" in str(c).lower()), None)
+            seen, rows = {}, []
+            for r in allrows:
+                k = nz(r[key]) if key < len(r) else ""
+                k = k or tuple(r)
+                if k in seen:
+                    # takror qator: bo'sh kataklarini (ayniqsa Belgi) ikkinchi o'qishdan to'ldiramiz
+                    old = rows[seen[k]]
+                    for j in range(min(len(old), len(r))):
+                        if not old[j] and r[j]:
+                            old[j] = r[j]
+                    continue
+                seen[k] = len(rows)
+                rows.append(list(r))
+            tables.append({"cols": list(unified), "rows": rows, "seen": set()})
+
+        for name, cols, rws, err in ([] if unified else results):
             if err or not rws:
                 errors.append(f"{name}: {err or 'jadval topilmadi'}")
                 continue
