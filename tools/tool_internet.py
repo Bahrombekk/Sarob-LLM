@@ -321,20 +321,31 @@ class Tools:
             return f"XATO: brauzer xizmati javob bermadi ({e})."
         return json.dumps(r, ensure_ascii=False)
 
-    def chatdagi_fayllar(self, __files__: list = None) -> str:
+    def chatdagi_fayllar(self, __files__: list = None, __messages__: list = None) -> str:
         """
         List files the user attached to this chat (Excel, Word, PDF, CSV, images) with their paths inside the
         execute_code environment. Call this first whenever you need to process an attached file with Python code,
         then open it in execute_code by the returned path (e.g. pd.read_excel(path)).
         :return: JSON list of attached files with name and path.
         """
-        out = []
-        for f in __files__ or []:
+        import glob, os
+
+        # __files__ faqat joriy xabar fayllari; javob qayta yaratilganda u bo'sh keladi — suhbat xabarlaridan ham yig'amiz
+        files = list(__files__ or [])
+        for m in __messages__ or []:
+            if m.get("role") == "user":
+                files += m.get("files") or []
+        out, seen = [], set()
+        for f in files:
             info = f.get("file") or f
             path = info.get("path") or (info.get("meta") or {}).get("path") or ""
+            if not path and info.get("id"):
+                hits = glob.glob(f"/app/backend/data/uploads/{info['id']}_*")
+                path = hits[0] if hits else ""
             name = info.get("filename") or f.get("name") or (info.get("meta") or {}).get("name") or ""
-            if path:
-                out.append({"nomi": name, "yol": "/yuklanganlar/" + path.rsplit("/", 1)[-1]})
+            if path and path not in seen:
+                seen.add(path)
+                out.append({"nomi": name, "yol": "/yuklanganlar/" + os.path.basename(path)})
         if not out:
             return "Bu chatga hech qanday fayl biriktirilmagan. Foydalanuvchidan faylni chatga yuklashni so'ra."
         return json.dumps(out, ensure_ascii=False)

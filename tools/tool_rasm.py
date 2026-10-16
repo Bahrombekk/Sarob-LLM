@@ -47,6 +47,36 @@ def _image_files(files):
     return out
 
 
+def _images_from_messages(messages):
+    """Zaxira: __files__ bo'sh bo'lsa (masalan, javob qayta yaratilganda Open WebUI fayllarni uzatmaydi),
+    rasmlarni suhbat xabarlaridan olamiz — rasmli eng oxirgi foydalanuvchi xabaridan."""
+    import tempfile
+
+    for m in reversed(messages or []):
+        if m.get("role") != "user":
+            continue
+        out = _image_files(m.get("files") or [])
+        content = m.get("content")
+        for i, p in enumerate(content if isinstance(content, list) else []):
+            if not (isinstance(p, dict) and p.get("type") == "image_url"):
+                continue
+            url = (p.get("image_url") or {}).get("url") or ""
+            if url.startswith("data:image"):
+                head, b64 = url.split(",", 1)
+                ext = ".png" if "png" in head else ".jpg"
+                tmp = tempfile.NamedTemporaryFile(delete=False, suffix=ext, prefix="sarob_rasm_")
+                tmp.write(base64.b64decode(b64)); tmp.close()
+                out.append((f"rasm_{i + 1}{ext}", tmp.name))
+            else:
+                fid = re.search(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", url)
+                hits = glob.glob(os.path.join(UPLOADS, f"{fid.group(0)}_*")) if fid else []
+                if hits and all(h != hits[0] for _, h in out):
+                    out.append((os.path.basename(hits[0]).split("_", 1)[-1], hits[0]))
+        if out:
+            return out
+    return []
+
+
 def _read_table(name_path):
     name, path = name_path
     data = base64.b64encode(open(path, "rb").read()).decode()
@@ -69,7 +99,7 @@ class Tools:
     def __init__(self):
         pass
 
-    def rasmlardan_excel(self, fayl_nomi: str = "jadval", __files__: list = None) -> str:
+    def rasmlardan_excel(self, fayl_nomi: str = "jadval", __files__: list = None, __messages__: list = None) -> str:
         """
         Convert tables in the screenshots/images attached to this chat into ONE Excel file. Reads every image
         separately at high resolution, merges rows in image order, removes duplicate rows from overlapping
@@ -78,7 +108,7 @@ class Tools:
         :param fayl_nomi: Output file name without extension, Latin letters/digits/underscore only (e.g. "kameralar").
         :return: Summary with row count, columns, preview and the download link.
         """
-        imgs = _image_files(__files__)
+        imgs = _image_files(__files__) or _images_from_messages(__messages__)
         if not imgs:
             return "Bu chatda rasm topilmadi. Foydalanuvchidan jadval skrinshotlarini yuborishni so'ra."
         with ThreadPoolExecutor(4) as ex:
